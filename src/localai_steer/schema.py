@@ -7,6 +7,7 @@ string, or a Go-map repr — never assume a dict).
 
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
 
 
@@ -53,6 +54,24 @@ class JsonError:
 
     error: str
     timestamp: str = ""
+
+
+@dataclass(frozen=True)
+class ObservableUpdate:
+    """An ``observable_update`` SSE event (job/observable state).
+
+    ``id`` is an integer job id — the only id-bearing field on any progress
+    event (pinned §2, re-verified 2026-10-30). ``progress``/``completion``
+    are optional: they were not present in the observed payloads.
+    """
+
+    id: int | None
+    agent: str
+    name: str
+    icon: str = ""
+    creation: dict | None = None
+    progress: float | None = None
+    completion: float | None = None
 
 
 def _as_str(value: object, default: str = "") -> str:
@@ -115,6 +134,75 @@ def parse_json_error(payload: dict) -> JsonError:
         error=_as_str(error, "unknown agent error"),
         timestamp=_as_str(payload.get("timestamp")),
     )
+
+
+
+
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _as_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def parse_observable_update(payload: dict) -> ObservableUpdate:
+    """Parse an ``observable_update`` payload into an :class:`ObservableUpdate`.
+
+    Tolerant: a missing ``id`` becomes ``None`` (the event is still usable);
+    a non-dict ``creation`` becomes ``None``; non-numeric ``progress``/
+    ``completion`` become ``None``.
+    """
+    creation = payload.get("creation")
+    return ObservableUpdate(
+        id=_as_int(payload.get("id")),
+        agent=_as_str(payload.get("agent")),
+        name=_as_str(payload.get("name")),
+        icon=_as_str(payload.get("icon")),
+        creation=creation if isinstance(creation, dict) else None,
+        progress=_as_float(payload.get("progress")),
+        completion=_as_float(payload.get("completion")),
+    )
+
+
+# Labels observed on the wire in ``status`` events (pinned §2).
+STATUS_LABELS = ("Thinking", "Reasoning", "Action taken", "Parameters", "Result")
+
+
+def unescape_status_text(raw: str) -> str:
+    """HTML-unescape a ``status``/``hud`` payload (pinned §2: HTML-escaped text)."""
+    return html.unescape(raw or "")
+
+
+def split_status_label(text: str) -> tuple[str, str]:
+    """Split a status line into ``(label, text)``.
+
+    ``'Thinking: <html>...'`` -> ``('Thinking', '<html>...')``; a line with
+    no known label -> ``('', text)``. Known labels: :data:`STATUS_LABELS`.
+    """
+    for label in STATUS_LABELS:
+        prefix = label + ":"
+        if text.startswith(prefix):
+            return label, text[len(prefix):].strip()
+    return "", text
 
 
 # Event names (pinned catalog; unknown names pass through, see sse.py).

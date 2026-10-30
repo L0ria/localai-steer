@@ -1,0 +1,20 @@
+event: json_message
+data: {"content": "Say hello.", "id": "1793336346624571020-user", "sender": "user", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: json_message_status
+data: {"status": "processing", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:01Z", "type": "reasoning", "content": "thinking..."}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:02Z", "type": "done"}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:02Z", "type": "content", "content": "Hello."}
+
+event: json_message
+data: {"content": "Hello.", "id": "1793336346624571020-agent", "sender": "agent", "timestamp": "2026-10-30T14:00:03Z"}
+
+event: json_message_status
+data: {"status": "completed", "timestamp": "2026-10-30T14:00:03Z"}

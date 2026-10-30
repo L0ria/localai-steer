@@ -1,0 +1,27 @@
+: replay of the PREVIOUS run's tail (broadcast replays >=18 envelopes to new subscribers)
+
+event: stream_event
+data: {"timestamp": "2026-10-30T13:50:01Z", "type": "reasoning", "content": "previous run thinking..."}
+
+event: json_error
+data: {"error": "previous run tool exploded", "timestamp": "2026-10-30T13:50:02Z"}
+
+event: json_message_status
+data: {"status": "completed", "timestamp": "2026-10-30T13:50:02Z"}
+
+: --- the CURRENT run starts here (after the 202 POST) ---
+
+event: json_message
+data: {"content": "Say a short greeting.", "id": "1793336346624571020-user", "sender": "user", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: json_message_status
+data: {"status": "processing", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:01Z", "type": "content", "content": "Ahoy, matey! "}
+
+event: json_message
+data: {"content": "Ahoy, matey! Welcome aboard.", "id": "1793336346624571020-agent", "sender": "agent", "timestamp": "2026-10-30T14:00:02Z"}
+
+event: json_message_status
+data: {"status": "completed", "timestamp": "2026-10-30T14:00:02Z"}

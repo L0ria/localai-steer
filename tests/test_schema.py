@@ -83,3 +83,79 @@ def test_parse_json_error() -> None:
 
 def test_parse_json_error_missing_text_gets_default() -> None:
     assert parse_json_error({}).error == "unknown agent error"
+
+
+# ------------------------------------------------------------------ M1 schema
+
+
+def test_parse_observable_update_pinned_shape() -> None:
+    from localai_steer.schema import parse_observable_update
+
+    update = parse_observable_update(
+        {
+            "id": 12,
+            "agent": "Drunken_Pirate",
+            "name": "job",
+            "icon": "agent",
+            "creation": {"chat_completion_message": {"role": "user", "content": "hi"}},
+        }
+    )
+    assert update.id == 12
+    assert update.agent == "Drunken_Pirate"
+    assert update.name == "job"
+    assert update.icon == "agent"
+    assert update.creation is not None
+    assert update.progress is None
+    assert update.completion is None
+
+
+def test_parse_observable_update_missing_id_is_none() -> None:
+    from localai_steer.schema import parse_observable_update
+
+    update = parse_observable_update({"agent": "A", "name": "job"})
+    assert update.id is None
+    assert update.creation is None
+
+
+def test_parse_observable_update_non_dict_creation_is_none() -> None:
+    from localai_steer.schema import parse_observable_update
+
+    update = parse_observable_update({"id": "not-an-int", "agent": "A", "creation": "nope"})
+    assert update.id is None
+    assert update.creation is None
+
+
+def test_parse_observable_update_progress_completion_optional() -> None:
+    from localai_steer.schema import parse_observable_update
+
+    update = parse_observable_update({"id": 1, "agent": "A", "progress": 0.5, "completion": 1})
+    assert update.progress == 0.5
+    assert update.completion == 1.0
+
+
+def test_unescape_status_text() -> None:
+    from localai_steer.schema import unescape_status_text
+
+    assert unescape_status_text("&lt;b&gt;bold&lt;/b&gt; &amp; more") == "<b>bold</b> & more"
+    assert unescape_status_text("") == ""
+    assert unescape_status_text("plain text") == "plain text"
+
+
+def test_split_status_label_all_five_labels() -> None:
+    from localai_steer.schema import split_status_label, unescape_status_text
+
+    # Pipeline: unescape first (apply_event), then split the label.
+    assert split_status_label(unescape_status_text("Thinking: &lt;html&gt;x&lt;/html&gt;")) == (
+        "Thinking", "<html>x</html>"
+    )
+    assert split_status_label("Reasoning: r") == ("Reasoning", "r")
+    assert split_status_label("Action taken: ran `ls`") == ("Action taken", "ran `ls`")
+    assert split_status_label("Parameters: p") == ("Parameters", "p")
+    assert split_status_label("Result: done") == ("Result", "done")
+
+
+def test_split_status_label_no_label() -> None:
+    from localai_steer.schema import split_status_label
+
+    assert split_status_label("no label here") == ("", "no label here")
+    assert split_status_label("") == ("", "")

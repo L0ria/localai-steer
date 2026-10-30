@@ -1,0 +1,46 @@
+: keep-alive comment
+
+event: hud
+data: &lt;div class="hud"&gt;Agent state: idle&lt;/div&gt;
+
+event: json_message
+data: {"content": "Use your tool to list the cwd, then print the date, then say DONE.", "id": "1793336346624571020-user", "sender": "user", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: json_message_status
+data: {"status": "processing", "timestamp": "2026-10-30T14:00:00Z"}
+
+event: observable_update
+data: {"id": 12, "agent": "Drunken_Pirate", "name": "job", "icon": "agent", "creation": {"chat_completion_message": {"role": "user", "content": "Use your tool to list the cwd, then print the date, then say DONE."}}}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:01Z", "type": "reasoning", "content": "The user wants "}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:01Z", "type": "reasoning", "content": "me to list the cwd."}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:02Z", "type": "tool_call", "tool_name": "execute_command", "tool_args": ""}
+
+event: status
+data: Action taken: &lt;html&gt;ran `ls`&lt;/html&gt;
+
+event: status
+data: Parameters: &lt;html&gt;cmd=ls&lt;/html&gt;
+
+event: status
+data: Result: &lt;html&gt;main  src  tests&lt;/html&gt;
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:03Z", "type": "tool_call", "tool_name": "execute_command", "tool_args": "{\"cmd\": \"date\"}"}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:04Z", "type": "content", "content": "Ahoy, matey! "}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T14:00:04Z", "type": "content", "content": "The date is printed."}
+
+event: json_message
+data: {"content": "Ahoy, matey! The date is printed.", "id": "1793336346624571020-agent", "sender": "agent", "timestamp": "2026-10-30T14:00:05Z", "metadata": {"model": "qwen3.8"}}
+
+event: json_message_status
+data: {"status": "completed", "timestamp": "2026-10-30T14:00:05Z"}

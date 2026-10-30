@@ -27,18 +27,6 @@ class Config:
         """Authorization headers; empty when no key is configured."""
         return {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
-    @property
-    def chat_url(self) -> str:
-        from urllib.parse import quote
-
-        return f"{self.base_url.rstrip('/')}/api/agents/{quote(self.agent, safe='')}/chat"
-
-    @property
-    def sse_url(self) -> str:
-        from urllib.parse import quote
-
-        return f"{self.base_url.rstrip('/')}/api/agents/{quote(self.agent, safe='')}/sse"
-
 
 def resolve_config(
     *,

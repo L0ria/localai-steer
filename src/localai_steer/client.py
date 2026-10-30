@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+import time
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Self
 from urllib.parse import quote
 
@@ -25,6 +27,7 @@ import httpx
 
 from localai_steer.config import Config
 from localai_steer.logging import get_logger
+from localai_steer.progress import Correlator
 from localai_steer.schema import (
     EVENT_JSON_ERROR,
     EVENT_JSON_MESSAGE,
@@ -189,23 +192,53 @@ class LocalAIClient:
 
     # ------------------------------------------------------- wait_for_result
 
-    async def wait_for_result(self, message_id: str, *, timeout: float | None = None) -> str:
+    async def wait_for_result(
+        self,
+        message_id: str,
+        *,
+        timeout: float | None = None,
+        on_event: Callable[[SSEEvent], None] | None = None,
+    ) -> str:
         """Consume the SSE stream until the correlated final agent result arrives.
 
+        M0 behavior plus an optional ``on_event`` callback (M1): every parsed
+        SSE event is forwarded to it in arrival order — but never after the
+        final result has been found.
+
+        Event order per SSE frame (pinned, docs/schema-pinned.md §8):
+          1. ``json_message`` for THIS ``message_id`` -> ``correlator.note_turn_marker()``
+          2. ``on_event(event)`` (progress capture / rendering)
+          3. ``json_error`` -> rejected (logged, not raised) when the
+             correlator's R4 rule deems it a stale replay; otherwise raised
+             (M0 behavior)
+          4. correlated final result -> return content (stream closed in ``finally``)
+
+        The :class:`Correlator` is constructed at call time — the call
+        happens right after the ``202`` POST, so ``turn_started_utc`` is the
+        wall-clock UTC turn-start reference for the R4 stale-``json_error``
+        rule (coordinator clarification).
+
         Returns the final ``content``. Raises :class:`TurnTimeout` when the
-        deadline passes, :class:`LocalAIError` on ``json_error`` or a dead
-        stream, and mapped errors for HTTP failures.
+        deadline passes, :class:`LocalAIError` on an attributed ``json_error``
+        or a dead stream, and mapped errors for HTTP failures.
         """
         deadline = self._cfg.timeout_s if timeout is None else timeout
         target_id = f"{message_id}-agent"
+        # Turn-start reference: wall-clock UTC (R4) + monotonic (R2 window).
+        correlator = Correlator(
+            turn_started_utc=datetime.now(UTC),
+            turn_started_monotonic=time.monotonic(),
+        )
         saw_completed = False
         try:
             async with asyncio.timeout(deadline):
                 async with self.stream_events() as events:
                     async for event in events:
-                        result = self._handle_event(event, target_id)
+                        result = self._handle_event(event, target_id, correlator)
                         if result is not None:
                             return result
+                        if on_event is not None:
+                            on_event(event)
                         saw_completed = saw_completed or (
                             event.event == EVENT_JSON_MESSAGE_STATUS
                             and (event.json() or {}).get("status") == STATUS_COMPLETED
@@ -219,8 +252,16 @@ class LocalAIClient:
         except TimeoutError:
             raise TurnTimeout(message_id, deadline) from None
 
-    def _handle_event(self, event: SSEEvent, target_id: str) -> str | None:
-        """Process one SSE event; returns the final content when correlated."""
+    def _handle_event(
+        self, event: SSEEvent, target_id: str, correlator: Correlator
+    ) -> str | None:
+        """Process one SSE event; returns the final content when correlated.
+
+        R1: ``json_message``/``json_message_status`` for this turn are markers.
+        R4: a stale-replayed ``json_error`` (timestamp older than the turn
+        start minus the clock-skew grace) is logged and ignored; an
+        attributed one is raised (M0 behavior).
+        """
         if event.event == EVENT_JSON_MESSAGE:
             payload = event.json()
             if payload is None:
@@ -234,9 +275,16 @@ class LocalAIClient:
             return None
         if event.event == EVENT_JSON_ERROR:
             payload = event.json() or {}
-            raise LocalAIError(
-                parse_json_error(payload).error, detail=f"message_id target={target_id}"
-            )
-        # stream_event / status / hud / observable_update / unknown: ignore in M0
-        self._log.debug("ignoring event %r", event.event)
+            error = parse_json_error(payload)
+            if correlator.is_stale_error(error.timestamp):
+                self._log.warning(
+                    "ignoring stale replayed json_error (timestamp=%s, turn started %s)",
+                    error.timestamp or "<missing>",
+                    correlator.turn_started_utc.isoformat(),
+                )
+                return None
+            raise LocalAIError(error.error, detail=f"message_id target={target_id}")
+        # stream_event / status / hud / observable_update / unknown: progress
+        # (forwarded to on_event by the caller) — ignored here in M0/M1.
+        self._log.debug("progress event %r", event.event)
         return None

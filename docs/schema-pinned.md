@@ -42,9 +42,11 @@ wire** against a live LocalAI instance, not just read from source.
   (`status`, `hud`) carry **HTML-escaped plain text, not JSON** — the parser
   must not assume all `data` is JSON.
 - **It is a per-agent broadcast to all connected clients**, and it **replays
-  the last ~10 envelopes** to a newly-connected client. Correlation must
-  therefore be by the `message_id`-derived `id` field, not by "first event
-  after POST".
+  the previous run's tail** to a newly-connected client — **≥ 18 envelopes
+  observed** (2026-10-30 re-probe; the earlier "~10" bound is approximate —
+  **treat the replay as unbounded for safety**). Correlation must therefore
+  be by the `message_id`-derived `id` field, not by "first event
+  after POST"; stale-replayed `json_error`s are filtered by timestamp (R4, §8).
 - **Event catalog (observed on the wire):** `hud`, `json_message`,
   `json_message_status`, `observable_update`, `status`, `stream_event`
   (+ `json_error` on failure, from source).
@@ -55,9 +57,9 @@ wire** against a live LocalAI instance, not just read from source.
 | `json_message_status` | `{"status": "processing"\|"completed", "timestamp": RFC3339}` | turn lifecycle marker |
 | `json_error` | `{"error": str, "timestamp": RFC3339}` | failure / cancellation signal |
 | `stream_event` | `{"type": "reasoning"\|"content"\|"tool_call"\|"done", "content"?: str, "tool_name"?: str, "tool_args"?: any, "timestamp": RFC3339}` | live tokens; **tool calls** |
-| `status` | HTML-escaped text: `Thinking: ...` / `Reasoning: ... Action taken: ... Parameters: ... Result: ...` | progress (M1) |
-| `hud` | HTML-escaped agent-state text (sent ~every 1 s) | ignore in M0 |
-| `observable_update` | rich JSON job/observable state (`id`,`agent`,`name`,`icon`,`creation`,`progress`,`completion`) | optional detail (M1) |
+| `status` | HTML-escaped text: `Thinking: ...` / `Reasoning: ...` / `Action taken: ...` / `Parameters: ...` / `Result: ...` | progress (M1) |
+| `hud` | **plain text with `<br>` separators** (not JSON, not HTML): `=====...<br>NowDoing: <br>DoingNext: <br>Your current goal is: <br>You have done: []<br>...<br>=====...` (sent ~every 1 s) | heartbeat; footer only (M1, Q2) |
+| `observable_update` | JSON job/observable state: `id` (**integer job id** — the only id on any progress event), `agent`, `name:"job"`, `icon`, `creation.chat_completion_message.{role,content}`; `progress`/`completion` **optional (not observed in re-probe)** | job-id attribution (M1, R3) |
 
 ## 3. Correlation key (pinned)
 
@@ -128,3 +130,40 @@ re-validated before build.
 - Standard LocalAI API key: `Authorization: Bearer <key>` (or
   `X-LocalAI-API-Key`). The client sends `Authorization` when a key is set
   (flag `--key` or env `LOCALAI_API_KEY`), and no auth header otherwise.
+
+## 8. Correlation rules (M1, approved in issue #4 §5 + coordinator review)
+
+**Facts:** the SSE channel is a per-agent **broadcast** that **replays the
+previous run's tail** to new subscribers (≥ 18 envelopes observed; bound
+approximate — treat as unbounded for safety). The final result is correlated
+by `id == "<message_id>-agent"` (M0). Progress events carry **no**
+`message_id`. `observable_update` carries an integer **job `id`** — the only
+id on any progress event. `json_error` carries **no** id, only a
+`timestamp` (RFC3339/UTC).
+
+| # | Event | Attribution |
+|---|---|---|
+| R1 | `json_message`, `json_message_status` | Correlated by `id`/`message_id` exactly as M0 (final result: `id == "<mid>-agent"`, `sender == "agent"`). Observed markers for the current turn call `correlator.note_turn_marker()`. |
+| R2 | `stream_event`, `status`, `hud` | **Correlation window:** accepted iff they arrive **after** the `202` POST (turn start) and **before** the correlated final result / attributed error. In the single-turn CLI this is effectively "arrived while the turn is active". |
+| R3 | `observable_update` | Accepted per R2, **plus** id check via `correlator.accept_observable()`: once `progress.job_id` is known, a later update with a *different* `id` is dropped (another job's state). First-seen `id` wins. |
+| R4 | `json_error` (the stale-replay hazard, M0 carry-over #1) | **Rejected (logged, not raised) when** its `timestamp` (RFC3339/UTC) parses to a moment **older than the turn start (wall-clock UTC captured at `Correlator` construction, i.e. right after the `202` POST) minus a `clock_skew_s` grace** (default 2 s). **Accepted (raised — M0 behavior) when** the timestamp is missing/unparseable, or is at/after turn start. |
+| R5 | unknown event names | Ignored, debug-logged (M0 tolerance preserved). |
+
+**Known limitation (documented):** a previous failed run's `json_error`
+whose timestamp falls within the `clock_skew_s` grace *before* the current
+turn's POST could still be raised. In practice the previous run finished
+(and its error was timestamped) well before the next POST, so the grace only
+guards against clock skew between client and server, not against real
+replay. Acceptable for M1.
+
+**`done` event type:** the pinned catalog lists `stream_event type:"done"`.
+It was not observed in the re-probe runs. M1 treats it as a
+**stop-accumulation marker** (`progress.mark_done()`, phase → "done") and
+logs it; it does not terminate the wait (the correlated final result still
+does that) (Q3, approved).
+
+**POST-then-SSE ordering (M0 carry-over #2):** the client keeps M0's order
+(`POST /chat` → subscribe to SSE). This is safe **because** the final result
+is always in the replay buffer (observed: replay carries the previous
+run's tail, ≥ 18 envelopes), and the R4 rule makes the same buffer safe for
+errors (a stale replayed `json_error` is rejected by timestamp).

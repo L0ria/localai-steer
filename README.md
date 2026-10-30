@@ -34,13 +34,23 @@ accumulated context**:
 
 ## Status
 
-**M0 — implemented (this PR).** One-shot turn against a live LocalAI:
+**M0 + M1 — implemented.** One-shot turn + live SSE progress rendering:
 
 - Installable Python package (Python ≥ 3.11, `httpx`/`click`/`rich`/`prompt_toolkit`),
   console script `localai-steer`.
 - `localai-steer --agent <name> "message"` → `POST /api/agents/<name>/chat` (202,
   `message_id`) → subscribe to `GET /api/agents/<name>/sse` → print the final agent
   result **correlated by `message_id`**.
+- **M1: live progress rendering** — a rich Live panel (TTY) or plain stderr lines
+  (pipe) shows reasoning tail, tool calls, partial output, status lines, and phase
+  transitions in real time. `--quiet` suppresses progress; `--progress` forces plain
+  lines. stdout always carries **only** the final result (one-shot contract).
+- **M1: correlation rules R1–R5** (pinned in [docs/schema-pinned.md](docs/schema-pinned.md) §8)
+  — stale `json_error` replay rejected by wall-clock UTC timestamp (R4); `observable_update`
+  job-id gating (R3); progress events attributed by the active-turn window (R2).
+- **M1: `TurnProgress` capture buffer** with M2-facing views
+  (`partial_assistant_text`, `in_flight_tool_calls`, `to_history_note`) — the foundation
+  M2 folds into history on steering.
 - Tolerant SSE parser, pinned response models, typed errors + exit codes
   (0 ok · 1 generic/timeout · 2 usage · 3 agent-not-found · 4 auth · 5 server).
 - Unit tests (mock transport + recorded live fixtures) and a re-runnable live probe
@@ -51,18 +61,27 @@ accumulated context**:
   pure observation broadcast, a 2nd message queues, no cancel route). M2's "interrupt"
   mechanism must be re-designed around this.
 
-**Not yet (later milestones):** live input line + interrupt/re-prompt (M2), live progress
-rendering (M1), history persistence (M3), config file / `--once` / CI (M4).
+**Not yet (later milestones):** live input line + interrupt/re-prompt (M2),
+history persistence (M3), config file / `--once` / CI (M4).
 
-## Usage (M0)
+## Usage
 
 ```bash
 # install (editable)
 uv venv --python 3.11 .venv && source .venv/bin/activate
 uv pip install -e '.[dev]'
 
-# one-shot turn
+# one-shot turn (TTY: rich live panel on stderr; stdout = final result only)
 localai-steer --agent Drunken_Pirate "Say a short greeting."
+
+# piped: plain progress lines on stderr; stdout = final result only
+localai-steer -a Drunken_Pirate "Say a short greeting." | tee log
+
+# suppress all progress (M0 behavior)
+localai-steer -a Drunken_Pirate --quiet "Say a short greeting."
+
+# force plain progress lines (e.g. when stdout is a TTY but you want lines)
+localai-steer -a Drunken_Pirate --progress "Say a short greeting."
 
 # options
 localai-steer -a Drunken_Pirate --base-url http://172.19.0.1:8080 \
@@ -71,6 +90,7 @@ localai-steer -a Drunken_Pirate --base-url http://172.19.0.1:8080 \
 
 Flags: `--agent/-a` (required) · `--base-url` (default `http://localhost:8080`,
 env `LOCALAI_BASE_URL`) · `--key` (env `LOCALAI_API_KEY`) · `--timeout` (default 300 s) ·
+`--quiet` (suppress progress) · `--progress` (force plain stderr lines) ·
 `--verbose/-v` (debug logs, API key redacted) · `--version`.
 
 ## Development
@@ -86,4 +106,5 @@ scripts/probe_live.sh   # live probe of the pinned contract (BASE_URL/AGENT env)
 
 - [Issue #1](https://github.com/L0ria/localai-steer/issues/1) — goals, tech stack, architecture, milestones.
 - [Issue #2](https://github.com/L0ria/localai-steer/issues/2) — M0 detailed implementation plan (probe & pin, R1 finding).
+- [Issue #4](https://github.com/L0ria/localai-steer/issues/4) — M1 detailed implementation plan (SSE progress rendering, correlation rules R1–R5, live checks).
 - [LocalAI](https://github.com/mudler/localai) — the open-source AI engine this targets.
