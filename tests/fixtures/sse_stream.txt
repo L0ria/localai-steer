@@ -1,0 +1,28 @@
+: keep-alive comment
+
+event: hud
+data: &lt;div class="hud"&gt;Agent state: idle&lt;/div&gt;
+
+event: json_message
+data: {"content": "Say a short greeting.", "id": "1793336346624571020-user", "sender": "user", "timestamp": "2026-10-30T04:27:55Z"}
+
+event: json_message_status
+data: {"status": "processing", "timestamp": "2026-10-30T04:27:55Z"}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T04:27:56Z", "type": "reasoning", "content": "The user wants a short greeting."}
+
+event: stream_event
+data: {"timestamp": "2026-10-30T04:27:57Z", "type": "tool_call", "tool_name": "execute_command", "tool_args": ""}
+
+event: status
+data: Thinking: &lt;html&gt;choosing a greeting...&lt;/html&gt;
+
+event: stream_event
+data: {"timestamp": "2026-10-30T04:27:58Z", "type": "content", "content": "Ahoy, matey!"}
+
+event: json_message
+data: {"content": "Ahoy, matey! Welcome aboard.", "id": "1793336346624571020-agent", "sender": "agent", "timestamp": "2026-10-30T04:27:59Z", "metadata": {"model": "qwen3.8"}}
+
+event: json_message_status
+data: {"status": "completed", "timestamp": "2026-10-30T04:27:59Z"}
